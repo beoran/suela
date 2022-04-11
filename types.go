@@ -6,6 +6,9 @@ type Type string
 
 const TypeType = Type("type")
 const TypeString = Type("string")
+const TypeFuncName = Type("funcname")
+const TypeFieldName = Type("fieldname")
+const TypeComment = Type("comment")
 const TypeInt = Type("int")
 const TypeFloat = Type("float")
 const TypeList = Type("list")
@@ -41,6 +44,16 @@ func (d Float) String() string {
 	return fmt.Sprintf("%f", d)
 }
 
+type Comment string
+
+func (d Comment) Type() Type {
+	return TypeComment
+}
+
+func (d Comment) String() string {
+	return "#" + string(d) + "\n"
+}
+
 type String string
 
 func (d String) Type() Type {
@@ -51,6 +64,26 @@ func (d String) String() string {
 	return "'" + string(d) + "'"
 }
 
+type FuncName string
+
+func (d FuncName) Type() Type {
+	return TypeFuncName
+}
+
+func (d FuncName) String() string {
+	return "$" + string(d)
+}
+
+type FieldName string
+
+func (d FieldName) Type() Type {
+	return TypeFieldName
+}
+
+func (d FieldName) String() string {
+	return string(d)
+}
+
 type List []Data
 
 func (d List) Type() Type {
@@ -58,7 +91,7 @@ func (d List) Type() Type {
 }
 
 func (d List) String() string {
-	s := "$list("
+	s := "@list("
 	for i, e := range d {
 		if i > 0 {
 			s += ","
@@ -76,7 +109,7 @@ func (d Map) Type() Type {
 }
 
 func (d Map) String() string {
-	s := "$map("
+	s := "@map("
 	i := 0
 	for k, e := range d {
 		if i > 0 {
