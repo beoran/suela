@@ -18,6 +18,7 @@ const TypeError = Type("error")
 const TypeAst = Type("ast")
 const TypeToken = Type("token")
 const TypeFunc = Type("func")
+const TypeRune = Type("rune")
 
 type Data interface {
 	Type() Type
@@ -32,6 +33,17 @@ func (d Int) Type() Type {
 
 func (d Int) String() string {
 	return fmt.Sprintf("%d", d)
+}
+
+// Rune is used only by the lexer for syntactical characters like (),
+type Rune int64
+
+func (d Rune) Type() Type {
+	return TypeRune
+}
+
+func (d Rune) String() string {
+	return fmt.Sprintf("%c", d)
 }
 
 type Float float64
@@ -133,7 +145,7 @@ func (d Json) String() string {
 }
 
 type Error struct {
-	Error error
+	Err error
 }
 
 func (d Error) Type() Type {
@@ -141,7 +153,11 @@ func (d Error) Type() Type {
 }
 
 func (d Error) String() string {
-	return d.Error.Error()
+	return d.Err.Error()
+}
+
+func (d Error) Error() string {
+	return d.Err.Error()
 }
 
 type Suela struct {

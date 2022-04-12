@@ -22,8 +22,7 @@ type Token struct {
 type Lexer struct {
 	Position
 	io.RuneScanner
-	prevLineSize int
-	ReadError    error
+	ReadError error
 }
 
 func (l Lexer) Peek() rune {
@@ -40,7 +39,7 @@ func (l Lexer) Peek() rune {
 	return r
 }
 
-func (l Lexer) Get() rune {
+func (l *Lexer) Get() rune {
 	r, _, err := l.RuneScanner.ReadRune()
 	if err != nil {
 		if err == io.EOF {
@@ -64,7 +63,7 @@ func (l Lexer) MakeToken(d Data) *Token {
 }
 
 func (l Lexer) Error(msg string, args ...interface{}) *Token {
-	loc := fmt.Sprintf(l.Source, l.Line, l.Column)
+	loc := fmt.Sprintf("%s:%d:%d:", l.Source, l.Line, l.Column)
 	err := fmt.Errorf(loc+msg, args...)
 	return l.MakeToken(Error{err})
 }
@@ -74,11 +73,11 @@ func (l Lexer) LexComment() *Token {
 	l.Get() // skip #
 	for r := l.Get(); r != '\n'; r = l.Get() {
 		if r < 0 {
-			return l.Error("Unexpected EOF or read error.")
+			return l.Error("Unexpected EOF or read error after %s.", buf.String())
 		}
 		buf.WriteRune(r)
 	}
-	return l.MakeToken(String(buf.String()))
+	return l.MakeToken(Comment(buf.String()))
 }
 
 func (l *Lexer) lexField(buf *strings.Builder) *Token {
@@ -86,11 +85,7 @@ func (l *Lexer) lexField(buf *strings.Builder) *Token {
 		(r >= 'a' && r <= 'z') ||
 		(r >= 'A' && r <= 'Z') ||
 		r == '.' ||
-		r == '_' ||
-		r < 0; r = l.Peek() {
-		if r < 0 {
-			return l.Error("Unexpected EOF or read error.")
-		}
+		r == '_'; r = l.Peek() {
 		buf.WriteRune(l.Get())
 	}
 	return nil // means no error here
@@ -100,7 +95,7 @@ func (l *Lexer) LexField() *Token {
 	buf := strings.Builder{}
 	err := l.lexField(&buf)
 	if err != nil {
-		return l.Error("Could not parse func call: %w", err)
+		return l.Error("Could not parse field: %w", err.Data)
 	}
 	return l.MakeToken(FieldName(buf.String()))
 }
@@ -110,9 +105,42 @@ func (l *Lexer) LexFuncall() *Token {
 	l.Get() // skip @
 	err := l.lexField(&buf)
 	if err != nil {
-		return l.Error("Could not parse func call: %w", err)
+		return l.Error("Could not parse func call: %w", err.Data)
 	}
 	return l.MakeToken(FuncName(buf.String()))
+}
+
+func (l *Lexer) LexJson() *Token {
+	buf := strings.Builder{}
+	buf.WriteRune(l.Get()) // get first {
+	inString, inEscape, openBraces := false, false, 1
+	for r := l.Get(); openBraces > 0; r = l.Get() {
+		if r < 0 {
+			return l.Error("Unexpected EOF or read error.")
+		}
+		if inString {
+			if inEscape {
+				inEscape = false
+			} else {
+				if r == '\\' {
+					inEscape = true
+				} else if r == '"' {
+					inString = false
+				}
+			}
+
+		} else {
+			if r == '}' {
+				openBraces--
+			} else if r == '{' {
+				openBraces++
+			} else if r == '"' {
+				inString = true
+			}
+		}
+		buf.WriteRune(r)
+	}
+	return l.MakeToken(Json([]byte(buf.String())))
 }
 
 func (l *Lexer) LexString() *Token {
@@ -145,10 +173,7 @@ func (l *Lexer) LexNumber() *Token {
 	buf := strings.Builder{}
 	buf.WriteRune(l.Get())
 	isInt := true
-	for r := l.Peek(); (r >= '0' && r <= '9') || r == '.' || r < 0; r = l.Peek() {
-		if r < 0 {
-			return l.Error("Unexpected EOF or read error.")
-		}
+	for r := l.Peek(); (r >= '0' && r <= '9') || r == '.'; r = l.Peek() {
 		if r == '.' {
 			if !isInt {
 				return l.Error("More than one floating point in number.")
@@ -177,7 +202,8 @@ func (l *Lexer) LexNumber() *Token {
 func (l *Lexer) Lex() *Token {
 	r := l.Peek()
 	if r == ' ' || r == '\t' {
-		for r = l.Get(); r == ' ' || r == '\t'; r = l.Get() {
+		for r = l.Peek(); r == ' ' || r == '\t'; r = l.Peek() {
+			l.Get()
 		}
 	}
 	switch r {
@@ -185,12 +211,18 @@ func (l *Lexer) Lex() *Token {
 		return l.LexComment()
 	case '@':
 		return l.LexFuncall()
+	case '{':
+		return l.LexJson()
 	case '\'':
 		return l.LexString()
-	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '-':
 		return l.LexNumber()
+	case '(', ')', ',':
+		return l.MakeToken(Rune(l.Get()))
 	case LEXER_EOF:
 		return nil
+	case LEXER_ERROR:
+		return l.Error("Read error: %w", l.ReadError)
 	default:
 		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' {
 			return l.LexField()
@@ -199,4 +231,13 @@ func (l *Lexer) Lex() *Token {
 	}
 
 	return &Token{}
+}
+
+func MakeLexerFromScanner(source string, scan io.RuneScanner) Lexer {
+	return Lexer{Position{source, 1, 1}, scan, nil}
+}
+
+func MakeLexerFromString(source, input string) Lexer {
+	buf := strings.NewReader(input)
+	return MakeLexerFromScanner(source, buf)
 }
