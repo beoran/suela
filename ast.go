@@ -1,6 +1,19 @@
 package suela
 
+type AstType int
+
+const (
+	AstTypeNone AstType = iota
+	AstTypeError
+	AstTypeArg
+	AstTypeStatement
+	AstTypeScript
+	AstTypeCall
+	AstTypeComment
+)
+
 type Ast struct {
-	Token
-	Children []Ast
+	AstType
+	*Token
+	Children []*Ast
 }

@@ -14,7 +14,23 @@ type Position struct {
 	Column int
 }
 
+type TokenKind rune
+
+const (
+	TokenKindLiteral TokenKind = 'L'
+	TokenKindField   TokenKind = 'F'
+	TokenKindComment TokenKind = '#'
+	TokenKindFunc    TokenKind = '@'
+	TokenKindComma   TokenKind = ','
+	TokenKindOp      TokenKind = '('
+	TokenKindCp      TokenKind = ')'
+	TokenKindEol     TokenKind = '\n'
+	TokenKindEnd     TokenKind = -1
+	TokenKindError   TokenKind = 2
+)
+
 type Token struct {
+	TokenKind
 	Position
 	Data
 }
@@ -58,14 +74,14 @@ func (l *Lexer) Get() rune {
 	return r
 }
 
-func (l Lexer) MakeToken(d Data) *Token {
-	return &Token{l.Position, d}
+func (l Lexer) MakeToken(k TokenKind, d Data) *Token {
+	return &Token{k, l.Position, d}
 }
 
 func (l Lexer) Error(msg string, args ...interface{}) *Token {
 	loc := fmt.Sprintf("%s:%d:%d:", l.Source, l.Line, l.Column)
 	err := fmt.Errorf(loc+msg, args...)
-	return l.MakeToken(Error{err})
+	return l.MakeToken(TokenKindError, Error{err})
 }
 
 func (l Lexer) LexComment() *Token {
@@ -77,15 +93,14 @@ func (l Lexer) LexComment() *Token {
 		}
 		buf.WriteRune(r)
 	}
-	return l.MakeToken(Comment(buf.String()))
+	return l.MakeToken(TokenKindComment, Comment(buf.String()))
 }
 
 func (l *Lexer) lexField(buf *strings.Builder) *Token {
 	for r := l.Peek(); (r >= '0' && r <= '9') ||
 		(r >= 'a' && r <= 'z') ||
 		(r >= 'A' && r <= 'Z') ||
-		r == '.' ||
-		r == '_'; r = l.Peek() {
+		r == '.' || r == '_' || r == '[' || r == ']'; r = l.Peek() {
 		buf.WriteRune(l.Get())
 	}
 	return nil // means no error here
@@ -97,7 +112,7 @@ func (l *Lexer) LexField() *Token {
 	if err != nil {
 		return l.Error("Could not parse field: %w", err.Data)
 	}
-	return l.MakeToken(FieldName(buf.String()))
+	return l.MakeToken(TokenKindField, MakeFieldName(buf.String()))
 }
 
 func (l *Lexer) LexFuncall() *Token {
@@ -107,7 +122,7 @@ func (l *Lexer) LexFuncall() *Token {
 	if err != nil {
 		return l.Error("Could not parse func call: %w", err.Data)
 	}
-	return l.MakeToken(FuncName(buf.String()))
+	return l.MakeToken(TokenKindFunc, FuncName(buf.String()))
 }
 
 func (l *Lexer) LexJson() *Token {
@@ -140,7 +155,7 @@ func (l *Lexer) LexJson() *Token {
 		}
 		buf.WriteRune(r)
 	}
-	return l.MakeToken(Json([]byte(buf.String())))
+	return l.MakeToken(TokenKindLiteral, Json([]byte(buf.String())))
 }
 
 func (l *Lexer) LexString() *Token {
@@ -166,7 +181,7 @@ func (l *Lexer) LexString() *Token {
 		}
 		buf.WriteRune(r)
 	}
-	return l.MakeToken(String(buf.String()))
+	return l.MakeToken(TokenKindLiteral, String(buf.String()))
 }
 
 func (l *Lexer) LexNumber() *Token {
@@ -196,13 +211,13 @@ func (l *Lexer) LexNumber() *Token {
 	if err != nil {
 		return l.Error("Not a number: %w", err)
 	}
-	return l.MakeToken(res)
+	return l.MakeToken(TokenKindLiteral, res)
 }
 
 func (l *Lexer) Lex() *Token {
 	r := l.Peek()
-	if r == ' ' || r == '\t' {
-		for r = l.Peek(); r == ' ' || r == '\t'; r = l.Peek() {
+	if r == ' ' || r == '\t' || r == '\r' {
+		for r = l.Peek(); r == ' ' || r == '\t' || r == '\r'; r = l.Peek() {
 			l.Get()
 		}
 	}
@@ -217,10 +232,10 @@ func (l *Lexer) Lex() *Token {
 		return l.LexString()
 	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '-':
 		return l.LexNumber()
-	case '(', ')', ',':
-		return l.MakeToken(Rune(l.Get()))
+	case '(', ')', ',', '\n':
+		return l.MakeToken(TokenKind(r), Nil{})
 	case LEXER_EOF:
-		return nil
+		return l.MakeToken(TokenKindEnd, Nil{})
 	case LEXER_ERROR:
 		return l.Error("Read error: %w", l.ReadError)
 	default:

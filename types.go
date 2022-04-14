@@ -1,24 +1,28 @@
 package suela
 
 import "fmt"
+import "strings"
 
 type Type string
 
-const TypeType = Type("type")
-const TypeString = Type("string")
-const TypeFuncName = Type("funcname")
-const TypeFieldName = Type("fieldname")
-const TypeComment = Type("comment")
-const TypeInt = Type("int")
-const TypeFloat = Type("float")
-const TypeList = Type("list")
-const TypeMap = Type("map")
-const TypeJson = Type("Jjon")
-const TypeError = Type("error")
-const TypeAst = Type("ast")
-const TypeToken = Type("token")
-const TypeFunc = Type("func")
-const TypeRune = Type("rune")
+const (
+	TypeType      = Type("type")
+	TypeString    = Type("string")
+	TypeFuncName  = Type("funcname")
+	TypeFieldName = Type("fieldname")
+	TypeComment   = Type("comment")
+	TypeInt       = Type("int")
+	TypeFloat     = Type("float")
+	TypeList      = Type("list")
+	TypeMap       = Type("map")
+	TypeJson      = Type("Jjon")
+	TypeError     = Type("error")
+	TypeAst       = Type("ast")
+	TypeToken     = Type("token")
+	TypeFunc      = Type("func")
+	TypeNil       = Type("nil")
+	TypeEnd       = Type("end")
+)
 
 type Data interface {
 	Type() Type
@@ -35,15 +39,14 @@ func (d Int) String() string {
 	return fmt.Sprintf("%d", d)
 }
 
-// Rune is used only by the lexer for syntactical characters like (),
-type Rune int64
+type Nil struct{}
 
-func (d Rune) Type() Type {
-	return TypeRune
+func (n Nil) Type() Type {
+	return TypeNil
 }
 
-func (d Rune) String() string {
-	return fmt.Sprintf("%c", d)
+func (n Nil) String() string {
+	return fmt.Sprintf("@nil()")
 }
 
 type Float float64
@@ -86,14 +89,18 @@ func (d FuncName) String() string {
 	return "$" + string(d)
 }
 
-type FieldName string
+type FieldName []string
 
 func (d FieldName) Type() Type {
 	return TypeFieldName
 }
 
 func (d FieldName) String() string {
-	return string(d)
+	return strings.Join([]string(d), ".")
+}
+
+func MakeFieldName(s string) FieldName {
+	return FieldName(strings.Split(s, "."))
 }
 
 type List []Data
