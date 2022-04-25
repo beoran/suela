@@ -33,93 +33,6 @@ func (p *Parser) Get() *Token {
 	}
 }
 
-// ParseFunc return nil in case of "no match", an an ast with type
-// AstTypeError in case of errors.
-type ParseFunc func() *Ast
-
-func AstFromToken(typ AstType, tok *Token, sub ...*Ast) *Ast {
-	return &Ast{typ, tok, sub}
-}
-
-func (p *Parser) AcceptToken(kind TokenKind, typ AstType) ParseFunc {
-	return func() *Ast {
-		tok := p.Peek()
-		if tok.TokenKind != kind {
-			return nil
-		}
-		return AstFromToken(typ, tok)
-	}
-}
-
-func (p *Parser) RequireToken(kind TokenKind, typ AstType) ParseFunc {
-	return func() *Ast {
-		tok := p.Peek()
-		if tok.TokenKind != kind {
-			return nil
-		}
-		return AstFromToken(typ, tok)
-	}
-}
-
-func parseAlternates(alternates ...ParseFunc) ParseFunc {
-	return func() *Ast {
-		for _, alt := range alternates {
-			subAst := alt()
-			if subAst != nil {
-				return subAst
-			}
-		}
-		return nil
-	}
-}
-
-func parseSequence(typ AstType, sequence ...ParseFunc) ParseFunc {
-	return func() *Ast {
-		ast := &Ast{AstType: typ}
-		for _, seq := range sequence {
-			subAst := seq()
-			if subAst == nil {
-				return nil
-			}
-			ast.Children = append(ast.Children, subAst)
-		}
-		return ast
-	}
-}
-
-func parseList(typ AstType, start, item, sep, end ParseFunc) ParseFunc {
-	return func() *Ast {
-		ast := &Ast{AstType: typ}
-		var subAst *Ast
-		if start != nil {
-			subAst = start()
-			if subAst == nil {
-				return nil
-			}
-		}
-		for {
-			subAst = item()
-			if subAst == nil {
-				return ast
-			}
-			ast.Children = append(ast.Children, subAst)
-			if sep != nil {
-				subAst = sep()
-				if subAst == nil {
-					return nil
-				}
-			}
-			if end != nil {
-				subAst = end()
-				if subAst != nil {
-					return nil
-				}
-			}
-		}
-		return ast
-	}
-}
-
 func NewParserFromString(source, input string) *Parser {
 	parser := &Parser{}
 	parser.Lexer = MakeLexerFromString(source, input)
@@ -132,26 +45,29 @@ func (p *Parser) ParseExpr() *Ast {
 	if tok.TokenKind != TokenKindFunc {
 		return p.Error("Expected @function name, got %s", tok.String())
 	}
-	ast := &Ast{AstTypeCall, tok, nil}
+	ast := AstFromToken(AstTypeCall, *tok)
 
 	tok = p.Get()
 	if tok.TokenKind != TokenKindOp {
 		return p.Error("Expected (, got %s", tok.String())
 	}
 
+	tok = p.Peek()
+	if tok.TokenKind == TokenKindCp {
+		p.Get()    // skip )
+		return ast // Empty list case.
+	}
+
 	for {
-		tok = p.Peek()
-		if tok.TokenKind == TokenKindCp {
-			return ast // end of call arguments.
-		}
-		arg := p.ParseArg()
+		arg := p.ParseArg() // get argument
+		ast.Children = append(ast.Children, arg)
 		if arg.AstType == AstTypeError {
-			ast.Children = append(ast.Children, arg)
 			return ast
 		}
-		tok = p.Peek()
+
+		tok = p.Peek() // get ) or ,
 		if tok.TokenKind == TokenKindCp {
-			p.Get()
+			p.Get()    // skip )
 			return ast // end of call arguments.
 		} else if tok.TokenKind == TokenKindComma {
 			p.Get() // skip comma
@@ -163,16 +79,17 @@ func (p *Parser) ParseExpr() *Ast {
 }
 
 func (p *Parser) ParseArg() *Ast {
-	tok := p.Get()
+	tok := p.Peek()
 	switch tok.TokenKind {
 	case TokenKindField, TokenKindLiteral:
-		return &Ast{AstTypeArg, tok, nil}
+		tok = p.Get() // make progress
+		return AstFromToken(AstTypeArg, *tok)
 	default:
 		sub := p.ParseExpr()
 		if sub == nil {
 			return p.Error("Expected a field, string, int, float, json, or expression. Got:%s.", tok)
 		}
-		return &Ast{AstTypeArg, nil, []*Ast{sub}}
+		return &Ast{AstTypeArg, *tok, []*Ast{sub}}
 	}
 	return nil
 }
@@ -181,34 +98,39 @@ func (p *Parser) Error(msg string, args ...interface{}) *Ast {
 	loc := fmt.Sprintf("%s:%d:%d:", p.Lexer.Source, p.Lexer.Line, p.Lexer.Column)
 	err := fmt.Errorf(loc+msg, args...)
 	tok := p.Lexer.MakeToken(TokenKindError, Error{err})
-	return &Ast{AstTypeError, tok, nil}
+	return &Ast{AstTypeError, *tok, nil}
 }
 
 func (p *Parser) ParseStatement() *Ast {
 	tok := p.Peek()
 	switch tok.TokenKind {
 	case TokenKindComment:
-		return &Ast{AstTypeComment, p.Get(), nil}
+		comm := p.Get()
+		return AstFromToken(AstTypeComment, *comm)
 	case TokenKindFunc:
 		return p.ParseExpr()
 	default:
-		return p.Error("Expected a comment, or a function call expression Got:%s.", tok)
+		return p.Error("Expected a comment, or a function call expression, found: %s.", tok)
 	}
 }
 
 func (p *Parser) Parse() *Ast {
-	ast := &Ast{AstTypeScript, nil, nil}
+	tok := p.Lexer.MakeToken(TokenKindLiteral, Nil{})
+	ast := AstFromToken(AstTypeScript, *tok)
 
 	for sub := p.ParseStatement(); sub != nil; sub = p.ParseStatement() {
 		ast.Children = append(ast.Children, sub)
+		if sub.AstType == AstTypeError {
+			return ast
+		}
 		tok := p.Get()
 		switch tok.TokenKind {
 		case TokenKindEol:
 			continue
 		case TokenKindEnd:
-			break
+			return ast
 		default:
-			return p.Error("Expected new line, found: s.", tok.Data.String())
+			return p.Error("Expected new line, found: %s (%c).", tok, tok.TokenKind)
 		}
 	}
 

@@ -15,7 +15,7 @@ const (
 	TypeFloat     = Type("float")
 	TypeList      = Type("list")
 	TypeMap       = Type("map")
-	TypeJson      = Type("Jjon")
+	TypeJson      = Type("json")
 	TypeError     = Type("error")
 	TypeAst       = Type("ast")
 	TypeToken     = Type("token")
@@ -24,6 +24,7 @@ const (
 	TypeEnd       = Type("end")
 )
 
+/*
 type Data interface {
 	Type() Type
 	String() string
@@ -46,7 +47,7 @@ func (n Nil) Type() Type {
 }
 
 func (n Nil) String() string {
-	return fmt.Sprintf("@nil()")
+	return fmt.Sprintf("")
 }
 
 type Float float64
@@ -86,7 +87,7 @@ func (d FuncName) Type() Type {
 }
 
 func (d FuncName) String() string {
-	return "$" + string(d)
+	return "@" + string(d)
 }
 
 type FieldName []string
@@ -167,12 +168,52 @@ func (d Error) Error() string {
 	return d.Err.Error()
 }
 
-type Suela struct {
-}
-
-type Func struct {
-	Func func(Suela, ...Data) Data
-}
-
 var _ Data = Int(0)
 var _ Data = String("")
+*/
+
+type Data struct {
+	Type
+	Str        *string
+	Int        *int64
+	Float      *float64
+	Error      error
+	Json       []byte
+	StringList []string
+	List       []*Data
+	Map        map[string]*Data
+	User       interface{ String() string }
+}
+
+func (d Data) String() string {
+	switch d.Type {
+	case TypeType:
+		return fmt.Sprintf("%s", d.Type)
+	case TypeString:
+		return fmt.Sprintf("%s", d.Str)
+	case TypeFuncName:
+		return fmt.Sprintf("%s", d.Str)
+	case TypeFieldName:
+		return fmt.Sprintf("%s", d.StringList)
+	case TypeComment:
+		return fmt.Sprintf("%s", d.Str)
+	case TypeInt:
+		return fmt.Sprintf("%s", d.Int)
+	case TypeFloat:
+		return fmt.Sprintf("%s", d.Float)
+	case TypeList:
+		return fmt.Sprintf("%v", d.List)
+	case TypeMap:
+		return fmt.Sprintf("%v", d.Map)
+	case TypeJson:
+		return fmt.Sprintf("%s", d.Json)
+	case TypeError:
+		return fmt.Sprintf("%s", d.Error)
+	case TypeNil:
+		return "nil"
+	case TypeEnd:
+		return "eof"
+	default:
+		return d.User.String()
+	}
+}

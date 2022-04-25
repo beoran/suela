@@ -25,8 +25,8 @@ const (
 	TokenKindOp      TokenKind = '('
 	TokenKindCp      TokenKind = ')'
 	TokenKindEol     TokenKind = '\n'
-	TokenKindEnd     TokenKind = -1
-	TokenKindError   TokenKind = 2
+	TokenKindEnd     TokenKind = 'Ω'
+	TokenKindError   TokenKind = 'ε'
 )
 
 type Token struct {
@@ -216,6 +216,7 @@ func (l *Lexer) LexNumber() *Token {
 
 func (l *Lexer) Lex() *Token {
 	r := l.Peek()
+	// skip whitespace
 	if r == ' ' || r == '\t' || r == '\r' {
 		for r = l.Peek(); r == ' ' || r == '\t' || r == '\r'; r = l.Peek() {
 			l.Get()
@@ -233,10 +234,12 @@ func (l *Lexer) Lex() *Token {
 	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '-':
 		return l.LexNumber()
 	case '(', ')', ',', '\n':
-		return l.MakeToken(TokenKind(r), Nil{})
+		return l.MakeToken(TokenKind(l.Get()), Nil{})
 	case LEXER_EOF:
+		l.Get()
 		return l.MakeToken(TokenKindEnd, Nil{})
 	case LEXER_ERROR:
+		l.Get()
 		return l.Error("Read error: %w", l.ReadError)
 	default:
 		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' {
